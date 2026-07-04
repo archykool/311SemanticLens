@@ -1,0 +1,28 @@
+# Raw/derived data — large, reproducible from Socrata; never committed
+Data/*.csv
+Data/*.json
+*.parquet
+
+# Postgres / ES docker volumes (if bind-mounted locally instead of named volumes)
+pgdata/
+esdata/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+*.local
+
+# Ingestion checkpoints (runtime state, not source)
+ingestion/*.checkpoint.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

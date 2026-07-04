@@ -1,0 +1,59 @@
+name: semanticlens
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-semanticlens}
+      POSTGRES_USER: ${POSTGRES_USER:-semanticlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-semanticlens} -d ${POSTGRES_DB:-semanticlens}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # One-shot / on-demand job, not part of `docker compose up`.
+  # Run with: docker compose run --rm ingestion python ingest.py <args>
+  ingestion:
+    build: ./ingestion
+    profiles: ["tools"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-semanticlens}
+      POSTGRES_USER: ${POSTGRES_USER:-semanticlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      SOCRATA_APP_TOKEN: ${SOCRATA_APP_TOKEN:-}
+    volumes:
+      - ./Data:/data:ro
+      - ./ingestion:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  esdata:
