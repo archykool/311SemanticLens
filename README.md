@@ -3,8 +3,8 @@
 Semantic retrieval and signal-analysis prototype over NYC 311 complaint data.
 Full spec: [Docs/spec-311-semantic-en.md](Docs/spec-311-semantic-en.md).
 
-Status: **C1 (ingestion) and C3 (embedding pipeline) done.** C2 (ontology)
-in design. See the spec's §6 build order for what's next.
+Status: **C1 (ingestion), C2 (enrichment), and C3 (embedding pipeline) done.**
+Next: C4 (ES index build). See the spec's §6 build order.
 
 ## Setup
 
@@ -65,3 +65,27 @@ Safe to rerun anytime; a rerun encodes only missing texts and inserts only
 missing vectors. The document text is constructed **in SQL** (see
 `EMBED_TEXT_SQL` in `embedding/embed.py`) so the embed and join steps can't
 drift; C5 must reuse the same model plus `BGE_QUERY_PREFIX` for queries.
+
+## Semantic enrichment (C2)
+
+The ontology ([Docs/ontology-v0.1.md](Docs/ontology-v0.1.md), human-designed
+and locked) remaps the 337 distinct complaint patterns onto three facets:
+`problem_domain`, `failure_mode`, and `agencies_involved` — the last being
+the cross-agency signal the demo is built around (e.g. a clogged catch basin
+maps to DEP+DSNY+DOT, not just the agency 311 routed it to).
+
+One `claude-opus-4-8` call per distinct combo — never per-record — with
+schema-constrained JSON output, cross-field validation, and a retry-once-
+then-flag-for-review policy (no silent guessing). Facets land in
+`combo_facets` and fan out to all 766K records via the `record_facets` view.
+One-time cost ≈ $5.30, well under the $20 budget.
+
+```bash
+# needs ANTHROPIC_API_KEY in .env
+docker compose build enrichment
+docker compose run --rm enrichment
+```
+
+Resumable: reruns only process combos not yet classified. Result: 65,699
+records (~8.6%) carry a ≥2-agency signal, concentrated in the drainage
+domain (23 of its 30 combos are multi-agency).

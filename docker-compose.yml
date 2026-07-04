@@ -72,6 +72,24 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot / on-demand job, not part of `docker compose up`.
+  # Needs ANTHROPIC_API_KEY in .env. Run with: docker compose run --rm enrichment
+  enrichment:
+    build: ./enrichment
+    profiles: ["tools"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-semanticlens}
+      POSTGRES_USER: ${POSTGRES_USER:-semanticlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ./enrichment:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   esdata:
