@@ -34,22 +34,10 @@ import os
 import numpy as np
 import psycopg
 
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
-DIM = 384
-
-# bge-small-en-v1.5 usage note: queries get this prefix, documents do not.
-# Exported for C5/C6 to import — do not inline a copy elsewhere.
-BGE_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
-
-# Canonical document-text construction. Reads naturally as a short sentence
-# fragment, e.g. "WATER LEAK. HEAVY FLOW. AT WALL OR CEILING".
-EMBED_TEXT_SQL = """
-concat_ws('. ',
-    nullif(trim(complaint_type), ''),
-    nullif(trim(descriptor), ''),
-    nullif(trim(additional_details), '')
-)
-""".strip()
+# The model/prefix/text-construction contract shared with C5's query
+# embedding lives in shared/semantic_contract.py — same vector space or
+# kNN is meaningless.
+from shared.semantic_contract import DIM, EMBED_TEXT_SQL, MODEL_NAME  # noqa: F401
 
 
 def get_conn():

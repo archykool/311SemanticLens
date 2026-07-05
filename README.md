@@ -3,8 +3,9 @@
 Semantic retrieval and signal-analysis prototype over NYC 311 complaint data.
 Full spec: [Docs/spec-311-semantic-en.md](Docs/spec-311-semantic-en.md).
 
-Status: **C1 (ingestion), C2 (enrichment), and C3 (embedding pipeline) done.**
-Next: C4 (ES index build). See the spec's §6 build order.
+Status: **C1–C5 done** (ingestion, enrichment, embeddings, ES index, query
+understanding). Next: C6 (hybrid retrieval & aggregation). See the spec's
+§6 build order.
 
 ## Setup
 
@@ -89,3 +90,33 @@ docker compose run --rm enrichment
 Resumable: reruns only process combos not yet classified. Result: 65,699
 records (~8.6%) carry a ≥2-agency signal, concentrated in the drainage
 domain (23 of its 30 combos are multi-agency).
+
+## Query understanding (C5)
+
+Natural language (EN/中文) → `{topic, geo, time_range, aggregation}` via a
+**pure-rules parser** ([api/parser.py](api/parser.py)). Why rules and not an
+LLM: ~0.05ms parse latency against a 500ms budget, zero recurring cost
+(§5 DoD), and the serving path stays fully local — `docker compose up` on a
+fresh machine needs no API key. Parsing is subtractive: recognized
+geo/time/intent phrases are consumed and the residue becomes `topic`, which
+goes to BM25 + query embedding (the fuzzy side tolerates phrasing, so rules
+only need to be precise about structure). Unparseable queries degrade to
+plain hybrid retrieval — never an error.
+
+Query embeddings use the same bge model as documents **plus**
+`BGE_QUERY_PREFIX` (documents are embedded without it) — the contract lives
+in [shared/semantic_contract.py](shared/semantic_contract.py) and
+`api/smoke_prefix.py` proves the prefix is live by printing top-10s with
+and without it.
+
+```bash
+docker compose up -d api            # http://localhost:8000
+curl "localhost:8000/parse?q=Top+10+districts+for+catch-basin+clogging+citywide"
+curl "localhost:8000/search?q=stormwater+drainage+problems&explain=true"
+docker compose run --rm api pytest test_parser.py -v   # 5 canonical + 20 paraphrases + latency gates
+docker compose run --rm api python smoke_prefix.py     # prefix A/B
+```
+
+Gates: 5/5 canonical questions, 20/20 paraphrases (≥80% required),
+0.054ms/parse (≤500ms required). `?explain=true` attaches the parsed query
+object and fired rules to search responses for live demo narration.

@@ -8,10 +8,13 @@ WORKDIR /app
 # texts, so GPU would be pointless anyway).
 RUN pip install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
 
-COPY requirements.txt .
+# Built with the repo root as context (see docker-compose.yml) so the image
+# can carry shared/semantic_contract.py alongside the pipeline code.
+COPY embedding/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY shared /app/shared
+COPY embedding /app
 
 # Model weights (~130MB) download on first run and persist in the HF_HOME
 # volume mounted by compose, so subsequent runs are offline-capable.
