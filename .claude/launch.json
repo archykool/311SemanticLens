@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "C:\\Python313\\python.exe",
+      "runtimeArgs": ["scripts/dev_proxy.py"],
+      "autoPort": true
+    }
+  ]
+}

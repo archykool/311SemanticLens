@@ -16,8 +16,11 @@ ranks — Archy's live demo narration channel.
 import os
 from contextlib import asynccontextmanager
 
+import os.path
+
 from elasticsearch import Elasticsearch
 from fastapi import FastAPI, Query
+from fastapi.staticfiles import StaticFiles
 
 from aggregations import run_aggregation
 from embedder import embed_query
@@ -87,3 +90,9 @@ def search(
 def health():
     return {"ok": True, "es": es.ping(),
             "patterns_loaded": len(pattern_store.texts) if pattern_store else 0}
+
+
+# C8 demo page — mounted last so API routes take precedence. html=True
+# serves static/index.html at "/".
+app.mount("/", StaticFiles(
+    directory=os.path.join(os.path.dirname(__file__), "static"), html=True))

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>311SemanticLens — semantic search over NYC 311</title>
+<style>
+  /* Single file, no CDN, no build step: the demo must work on a fresh
+     machine via `docker compose up` alone, offline included. */
+  :root {
+    --ink: #1c2733; --muted: #5b6b7b; --line: #dde4ea; --bg: #f7f9fa;
+    --accent: #14557b; --accent-soft: #e3eef5;
+    --bar: #4d89ab; --bar2: #c96f4a; --good: #2e7d4f; --warn: #a33;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 Georgia, 'Times New Roman', serif; }
+  header { background: #fff; border-bottom: 2px solid var(--accent); padding: 18px 28px; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 28px 60px; }
+
+  .searchrow { display: flex; gap: 8px; margin-bottom: 10px; }
+  .searchrow input[type=text] { flex: 1; padding: 11px 14px; font: inherit;
+    border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+  .searchrow button { padding: 11px 22px; font: inherit; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 4px; }
+  .searchrow label { display: flex; align-items: center; gap: 6px;
+    color: var(--muted); font-size: 13px; white-space: nowrap; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 22px; }
+  .presets button { font: 13px Georgia, serif; padding: 7px 12px; cursor: pointer;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid #bcd2e0; border-radius: 15px; }
+  .presets button:hover { background: #d2e4ef; }
+
+  section { background: #fff; border: 1px solid var(--line); border-radius: 6px;
+            padding: 18px 22px; margin-bottom: 18px; }
+  section h2 { margin: 0 0 4px; font-size: 16px; color: var(--accent); }
+  section .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+  .barrow { display: flex; align-items: center; gap: 10px; margin: 5px 0; cursor: pointer; }
+  .barrow:hover .blabel { text-decoration: underline; }
+  .blabel { width: 190px; flex-shrink: 0; font-size: 13px; text-align: right;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btrack { flex: 1; background: var(--bg); border-radius: 3px; height: 20px; position: relative; }
+  .bfill { height: 100%; border-radius: 3px; background: var(--bar); min-width: 2px; }
+  .bfill.alt { background: var(--bar2); }
+  .bval { font-size: 12px; color: var(--muted); width: 110px; flex-shrink: 0; }
+
+  .chip { display: inline-block; padding: 1px 8px; margin: 0 3px 3px 0; border-radius: 10px;
+          font-size: 11.5px; background: var(--accent-soft); color: var(--accent); }
+  .chip.agency { background: #f2e8df; color: #7a4a22; }
+  .chip.multi { background: #dff0e5; color: var(--good); font-weight: bold; }
+  .chip.domain { background: #e8e4f2; color: #4a3a7a; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: normal; font-size: 12px; }
+
+  .result { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .result:last-child { border-bottom: 0; }
+  .rtitle { font-size: 14.5px; }
+  .rmeta { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  .drill { margin: 6px 0 12px 200px; padding: 10px 14px; background: var(--bg);
+           border-left: 3px solid var(--accent); font-size: 13px; }
+  .sparkline { vertical-align: middle; }
+  pre { background: #f3f5f7; border: 1px solid var(--line); border-radius: 4px;
+        padding: 12px; font-size: 12px; overflow-x: auto; }
+  .growth-up { color: var(--warn); font-weight: bold; }
+  .growth-down { color: var(--good); }
+  .hint { color: var(--muted); font-style: italic; font-size: 12.5px; }
+  .lift { font-size: 11.5px; padding: 1px 6px; border-radius: 3px; background: #fbeee6; color: #9a5326; }
+  #status { color: var(--muted); font-size: 13px; margin: 8px 0; min-height: 20px; }
+  .cols { display: flex; gap: 30px; flex-wrap: wrap; }
+  .cols > div { flex: 1; min-width: 320px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>311<span>SemanticLens</span></h1>
+  <p>Semantic search &amp; cross-agency signal discovery over 765,728 NYC&nbsp;311 records (2025) —
+     the 311 taxonomy is single-label and agency-centric; real problems aren't.</p>
+</header>
+<main>
+  <div class="searchrow">
+    <input type="text" id="q" placeholder="Ask in English or 中文 — e.g. “Where in Brooklyn is stormwater not draining?”"
+           onkeydown="if(event.key==='Enter')run()">
+    <button onclick="run()">Search</button>
+    <label><input type="checkbox" id="explain" checked> explain</label>
+  </div>
+  <div class="presets" id="presets"></div>
+  <div id="status"></div>
+  <div id="explainbox" style="display:none"></div>
+  <div id="agg"></div>
+  <div id="results"></div>
+</main>
+
+<script>
+"use strict";
+const PRESETS = [
+  "Where in Brooklyn is stormwater not draining?",
+  "Which agencies does a single catch-basin complaint actually involve?",
+  "Which district's drainage complaints grew fastest last year?",
+  "Top 10 districts for catch-basin clogging citywide?",
+  "What problems tend to co-occur with catch-basin clogging?",
+];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+PRESETS.forEach((p, i) => {
+  const b = document.createElement("button");
+  b.textContent = `Q${i + 1} · ${p}`;
+  b.onclick = () => { $("q").value = p; run(); };
+  $("presets").appendChild(b);
+});
+
+let lastQuery = "";
+
+async function api(params) {
+  const url = "/search?" + new URLSearchParams(params);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+async function run() {
+  const q = $("q").value.trim();
+  if (!q) return;
+  lastQuery = q;
+  $("status").textContent = "searching…";
+  $("agg").innerHTML = ""; $("results").innerHTML = ""; $("explainbox").innerHTML = "";
+  const t0 = performance.now();
+  try {
+    const body = await api({ q, size: 10, explain: $("explain").checked });
+    $("status").textContent = `${Math.round(performance.now() - t0)} ms`;
+    if ($("explain").checked && body.explain) renderExplain(body.explain);
+    if (body.aggregation) renderAgg(body.aggregation);
+    renderResults(body.results || []);
+  } catch (e) {
+    $("status").innerHTML = `<span style="color:var(--warn)">error: ${esc(e.message)}</span>`;
+  }
+}
+
+function renderExplain(ex) {
+  const p = ex.parsed;
+  const box = $("explainbox");
+  box.style.display = "";
+  box.innerHTML = `<section>
+    <h2>How the query was understood</h2>
+    <p class="sub">pure-rules parse (~0.05 ms) → topic goes to BM25 + embedding; structure becomes filters &amp; aggregation</p>
+    <table>
+      <tr><th>topic</th><td>${esc(p.topic)}</td></tr>
+      <tr><th>geo</th><td>${esc(JSON.stringify(p.geo))}</td></tr>
+      <tr><th>time_range</th><td>${esc(JSON.stringify(p.time_range))}</td></tr>
+      <tr><th>aggregation</th><td>${esc(JSON.stringify(p.aggregation))}</td></tr>
+      <tr><th>rules fired</th><td>${(p.matched_rules || []).map((r) => `<span class="chip">${esc(r)}</span>`).join("")}</td></tr>
+      <tr><th>patterns selected</th><td>${(ex.selected_patterns || []).slice(0, 8).map((s) =>
+        `<span class="chip" title="${esc(s.via)}">${esc(s.pattern.split(".")[0])}·${s.sim}</span>`).join("")}
+        ${(ex.selected_patterns || []).length > 8 ? `<span class="hint">+${ex.selected_patterns.length - 8} more</span>` : ""}</td></tr>
+    </table>
+    ${p.aggregation === null ? '<p class="hint">No aggregation intent recognized — degraded gracefully to plain hybrid retrieval.</p>' : ""}
+  </section>`;
+}
+
+function bar(label, count, max, extra, onclickAttr, alt) {
+  const w = Math.max(2, Math.round((count / max) * 100));
+  return `<div class="barrow" ${onclickAttr || ""}>
+    <div class="blabel" title="${esc(label)}">${esc(label)}</div>
+    <div class="btrack"><div class="bfill${alt ? " alt" : ""}" style="width:${w}%"></div></div>
+    <div class="bval">${count.toLocaleString()}${extra || ""}</div>
+  </div>`;
+}
+
+function renderAgg(agg) {
+  const el = $("agg");
+  if (agg.type === "distribution") el.innerHTML = aggDistribution(agg);
+  else if (agg.type === "agency_facets") el.innerHTML = aggAgency(agg);
+  else if (agg.type === "trend") el.innerHTML = aggTrend(agg);
+  else if (agg.type === "topn") el.innerHTML = aggTopN(agg);
+  else if (agg.type === "cooccurrence") el.innerHTML = aggCooccur(agg);
+  else if (agg.type === "records") el.innerHTML = recordsTable(agg.records, `Records — ${agg.group_value} (${agg.total.toLocaleString()} total)`);
+}
+
+/* Q1 — stage 1: buckets only. Clicking a district issues the SECOND request
+   (expand_group=…) that fetches its records: the two-stage drill-down. */
+function aggDistribution(agg) {
+  const max = Math.max(...agg.buckets.map((b) => b.count), 1);
+  return `<section>
+    <h2>District distribution — ${agg.total.toLocaleString()} matching records</h2>
+    <p class="sub">click a district to drill down to its records (stage 2 of 2)</p>
+    ${agg.buckets.map((b, i) => `
+      ${bar(b.district, b.count, max, "", `onclick="drill(this,'${esc(b.district)}')"`)}
+      <div style="margin:0 0 6px 200px">${b.categories.map((c) =>
+        `<span class="chip">${esc(c.category)} ${c.count.toLocaleString()}</span>`).join("")}</div>`).join("")}
+  </section>`;
+}
+
+async function drill(row, district) {
+  const existing = row.parentElement.querySelector(`.drill[data-g="${CSS.escape(district)}"]`);
+  if (existing) { existing.remove(); return; }
+  const holder = document.createElement("div");
+  holder.className = "drill"; holder.dataset.g = district;
+  holder.textContent = "loading records…";
+  row.after(holder);
+  try {
+    const body = await api({ q: lastQuery, expand_group: district, expand_size: 8 });
+    const a = body.aggregation;
+    holder.innerHTML = recordsTable(a.records,
+      `${district} — ${a.total.toLocaleString()} records, showing latest ${a.records.length}`, true);
+  } catch (e) { holder.textContent = "error: " + e.message; }
+}
+
+function recordsTable(records, title, bare) {
+  const rows = records.map((r) => `<tr>
+    <td>${esc((r.created_date || "").slice(0, 10))}</td>
+    <td>${esc(r.complaint_type)} — ${esc(r.descriptor)}</td>
+    <td>${esc(r.agency)}</td>
+    <td>${(r.agencies_involved || []).map((a) => `<span class="chip agency">${esc(a)}</span>`).join("")}</td>
+    <td>${esc(r.status)}</td></tr>`).join("");
+  const table = `<table><tr><th>date</th><th>complaint</th><th>routed to</th><th>involves</th><th>status</th></tr>${rows}</table>`;
+  return bare ? `<strong>${esc(title)}</strong>${table}`
+              : `<section><h2>${esc(title)}</h2>${table}</section>`;
+}
+
+/* Q2 — the killer feature: routed-to vs actually-involves, side by side. */
+function aggAgency(agg) {
+  const max = Math.max(...agg.routed_agency.map((b) => b.count),
+                       ...agg.involved_agencies.map((b) => b.count), 1);
+  return `<section>
+    <h2>Agency analysis — ${agg.total.toLocaleString()} matching records</h2>
+    <p class="sub">${agg.multi_agency_pattern_count} of the matched complaint patterns implicate ≥ 2 agencies</p>
+    <div class="cols">
+      <div><strong>Where 311 routed it</strong>
+        ${agg.routed_agency.map((b) => bar(b.agency, b.count, max)).join("")}</div>
+      <div><strong>Which agencies the problem actually involves</strong>
+        ${agg.involved_agencies.map((b) => bar(b.agency, b.count, max, "", "", true)).join("")}</div>
+    </div>
+    <p class="sub" style="margin-top:14px">matched patterns and their agency sets:</p>
+    ${agg.patterns.map((p) => `<div style="font-size:13px;margin:3px 0">
+      ${(p.agencies || []).map((a) => `<span class="chip ${p.agencies.length > 1 ? "multi" : "agency"}">${esc(a)}</span>`).join("")}
+      ${esc(p.pattern)}</div>`).join("")}
+  </section>`;
+}
+
+/* Q3 — growth ranking with an SVG sparkline per district (the trend line). */
+function sparkline(monthly) {
+  const counts = monthly.map((m) => m.count);
+  const max = Math.max(...counts, 1), W = 120, H = 26;
+  const pts = counts.map((c, i) =>
+    `${(i / Math.max(counts.length - 1, 1)) * W},${H - (c / max) * (H - 3)}`).join(" ");
+  return `<svg class="sparkline" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <polyline points="${pts}" fill="none" stroke="var(--bar2)" stroke-width="1.8"/></svg>`;
+}
+
+function aggTrend(agg) {
+  return `<section>
+    <h2>Fastest-growing districts</h2>
+    <p class="sub">metric: second half vs first half of the window · click a district to drill down</p>
+    <table><tr><th>district</th><th>trend</th><th>growth</th><th>1st half</th><th>2nd half</th><th>total</th></tr>
+    ${agg.buckets.slice(0, 12).map((b) => `<tr style="cursor:pointer" onclick="drill(this,'${esc(b.district)}')">
+      <td>${esc(b.district)}</td>
+      <td>${sparkline(b.monthly)}</td>
+      <td class="${b.growth > 0 ? "growth-up" : "growth-down"}">${b.growth > 0 ? "+" : ""}${Math.round(b.growth * 100)}%</td>
+      <td>${b.first_half.toLocaleString()}</td><td>${b.second_half.toLocaleString()}</td>
+      <td>${b.count.toLocaleString()}</td></tr>`).join("")}
+    </table>
+  </section>`;
+}
+
+function aggTopN(agg) {
+  const max = Math.max(...agg.buckets.map((b) => b.count), 1);
+  return `<section>
+    <h2>Top ${agg.n} districts — ${agg.total.toLocaleString()} matching records</h2>
+    <p class="sub">click a district to drill down to its records</p>
+    ${agg.buckets.map((b) => bar(`#${b.rank}  ${b.district}`, b.count, max, "",
+      `onclick="drill(this,'${esc(b.district)}')"`)).join("")}
+  </section>`;
+}
+
+/* Q5 — co-occurrence with lift vs citywide baseline. */
+function aggCooccur(agg) {
+  if (!agg.buckets.length) return `<section><h2>Co-occurrence</h2><p class="sub">no qualifying cells</p></section>`;
+  const max = Math.max(...agg.buckets.map((b) => b.count), 1);
+  return `<section>
+    <h2>What co-occurs with this problem</h2>
+    <p class="sub">measured inside ${agg.cells_used} (${esc(agg.cell_definition)}) cells where the topic concentrates;
+       lift &gt; 1 = over-represented there vs citywide</p>
+    ${agg.buckets.map((b) => bar(b.pattern.split(".").slice(0, 2).join(" ·"), b.count, max,
+      b.lift_vs_citywide ? ` <span class="lift">lift ${b.lift_vs_citywide}</span>` : "")).join("")}
+    <p class="sub" style="margin-top:10px">domains present in those cells:
+      ${agg.domains_in_cells.map((d) => `<span class="chip domain">${esc(d.domain)} ${d.count.toLocaleString()}</span>`).join("")}</p>
+  </section>`;
+}
+
+function renderResults(results) {
+  if (!results.length) { $("results").innerHTML = "<section><h2>Results</h2><p class='sub'>none</p></section>"; return; }
+  $("results").innerHTML = `<section>
+    <h2>Top matching complaint patterns</h2>
+    <p class="sub">one representative record per pattern, hybrid BM25 + kNN ranking (RRF)</p>
+    ${results.map((r) => `<div class="result">
+      <div class="rtitle">${esc(r.complaint_type)} — ${esc(r.descriptor)}${r.additional_details ? " · " + esc(r.additional_details) : ""}</div>
+      <div class="rmeta">
+        ${r.problem_domain ? `<span class="chip domain">${esc(r.problem_domain)}</span>` : ""}
+        ${r.failure_mode ? `<span class="chip">${esc(r.failure_mode)}</span>` : ""}
+        routed to <b>${esc(r.agency)}</b> · involves
+        ${(r.agencies_involved || []).map((a) => `<span class="chip ${(r.agencies_involved || []).length > 1 ? "multi" : "agency"}">${esc(a)}</span>`).join("")}
+        · ${esc(r.borough || "")} ${esc(r.community_board || "")} · ${esc((r.created_date || "").slice(0, 10))}
+        · rrf ${r.rrf_score}
+      </div></div>`).join("")}
+  </section>`;
+}
+</script>
+</body>
+</html>

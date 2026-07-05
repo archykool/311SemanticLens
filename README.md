@@ -3,9 +3,9 @@
 Semantic retrieval and signal-analysis prototype over NYC 311 complaint data.
 Full spec: [Docs/spec-311-semantic-en.md](Docs/spec-311-semantic-en.md).
 
-Status: **C1–C7 done** (C7 recall track complete; precision track pending
-Archy's golden labels). Next: C8 (demo frontend). See the spec's §6 build
-order.
+Status: **C1–C8 done** (C7 precision track pending Archy's golden labels).
+Remaining: golden-set report, C2 spot-check verdicts, README dual-narrative
+polish (D7).
 
 ## Setup
 
@@ -181,3 +181,19 @@ hidden from the judge (protocol: [eval/LABELING.md](eval/LABELING.md)).
 docker compose run --rm eval python pool.py   # labeling sheet -> Data/
 docker compose run --rm eval                  # report -> eval/reports/ (versioned)
 ```
+
+## Demo frontend (C8)
+
+Single-file vanilla HTML/JS ([api/static/index.html](api/static/index.html))
+served by the API container at `http://localhost:8000/` — no build step, no
+CDN, works offline in a demo room. One preset button per chief-DS question;
+per-shape visualizations (district bars, routed-vs-involved agency
+comparison, SVG trend sparklines, lift-ranked co-occurrence); the explain
+panel narrates the parse (rules fired, patterns selected) live. Q1's
+drill-down is the two-stage interaction: click a district bar → a second
+request fetches that district's records.
+
+Known limitation: queries in Chinese parse structurally (boroughs, intents)
+but semantic retrieval quality drops — bge-small-en-v1.5 is English-only
+and the model choice is spec-locked. A multilingual bge variant is the
+v1.1+ upgrade path.

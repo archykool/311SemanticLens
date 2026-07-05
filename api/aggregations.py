@@ -39,7 +39,7 @@ def expand_records(es, index, parsed, patterns, expand, extra_term=None):
     if extra_term:  # e.g. Q1 drill narrowed to one category
         filters.append({"term": extra_term})
     res = es.search(
-        index=index,
+        index=index, track_total_hits=True,
         query={"bool": {"filter": filters}},
         sort=[{"created_date": "desc"}],
         size=expand.size,
@@ -58,7 +58,7 @@ def expand_records(es, index, parsed, patterns, expand, extra_term=None):
 def distribution(es, index, parsed, patterns):
     """Q1: WHERE is it happening — districts ranked, categories within."""
     res = es.search(
-        index=index, size=0,
+        index=index, size=0, track_total_hits=True,
         query={"bool": {"filter": _base_filters(parsed, patterns)}},
         aggs={"by_district": {
             "terms": {"field": "community_board", "size": 30},
@@ -86,7 +86,7 @@ def distribution(es, index, parsed, patterns):
 def agency_facets(es, index, parsed, patterns, pattern_store):
     """Q2: which agencies does this problem actually implicate (killer feature)."""
     res = es.search(
-        index=index, size=0,
+        index=index, size=0, track_total_hits=True,
         query={"bool": {"filter": _base_filters(parsed, patterns)}},
         aggs={
             "by_agency_facet": {"terms": {"field": "agencies_involved", "size": 7}},
@@ -121,7 +121,7 @@ def agency_facets(es, index, parsed, patterns, pattern_store):
 def trend(es, index, parsed, patterns):
     """Q3: growth by district — monthly series, first-half vs second-half."""
     res = es.search(
-        index=index, size=0,
+        index=index, size=0, track_total_hits=True,
         query={"bool": {"filter": _base_filters(parsed, patterns)}},
         aggs={"by_district": {
             "terms": {"field": "community_board", "size": 60, "min_doc_count": 30},
@@ -154,7 +154,7 @@ def topn(es, index, parsed, patterns):
     """Q4: top-N districts by volume."""
     n = (parsed.aggregation.top_n or 10) if parsed.aggregation else 10
     res = es.search(
-        index=index, size=0,
+        index=index, size=0, track_total_hits=True,
         query={"bool": {"filter": _base_filters(parsed, patterns)}},
         aggs={"by_district": {"terms": {"field": "community_board", "size": n}}},
     )
@@ -216,13 +216,13 @@ def cooccurrence(es, index, parsed, patterns):
             "filter": base + [{"bool": {"should": cell_clauses, "minimum_should_match": 1}}],
             "must_not": [topic_terms],
         }},
-        "size": 0,
+        "size": 0, "track_total_hits": True,
         "aggs": {"patterns": {"terms": {"field": "full_text.raw", "size": 15}},
                  "domains": {"terms": {"field": "problem_domain", "size": 6}}},
     }
     citywide = {
         "query": {"bool": {"must_not": [topic_terms]}},
-        "size": 0,
+        "size": 0, "track_total_hits": True,
         "aggs": {"patterns": {"terms": {"field": "full_text.raw", "size": 300}}},
     }
     resp = es.msearch(searches=[{"index": index}, in_cells,
@@ -243,6 +243,9 @@ def cooccurrence(es, index, parsed, patterns):
             "share_in_cells": round(share, 4),
             "lift_vs_citywide": round(share / baseline, 2) if baseline else None,
         })
+    # "Tends to co-occur" is a lift question, not a popularity question —
+    # raw counts just re-rank citywide volume. Lift-less rows sink.
+    buckets.sort(key=lambda b: -(b["lift_vs_citywide"] or 0))
     return {
         "type": "cooccurrence", "cells_used": len(cells),
         "cell_definition": "community_board x calendar month, >=5 topic records",
