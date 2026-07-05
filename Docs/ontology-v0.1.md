@@ -1,4 +1,4 @@
-# Rechannel Ontology v0.1
+# Rechannel Ontology v0.1.1
 
 Status: **locked for W0** (owner: Archy; changes require Archy's sign-off, not Claude Code's discretion)
 Applies to: the 337 distinct (complaint_type × descriptor × additional_details) combos in `embedding_text_cache`
@@ -29,7 +29,7 @@ Consumed by: C2 enrichment (LLM batch mapping), C4 index fields, C5/C6 retrieval
 
 - **HPD `WATER LEAK` (at wall/ceiling) → `other`, never `drainage`.** It is indoor plumbing, not street drainage. Lexical overlap on "water" is exactly the trap this ontology exists to avoid.
 - **Hydrant/water-main combos → `water_supply`, never `drainage`.** Supply ≠ removal.
-- **DPR `Root/Sewer/Sidewalk Condition` → `drainage`** despite being agency-tagged DPR. This is a deliberate cross-agency call and a talking point for the demo.
+- **DPR `Root/Sewer/Sidewalk Condition` → `drainage`** despite being agency-tagged DPR. This is a deliberate cross-agency call and a talking point for the demo. *(v0.1.1: applies to the sewer-affecting combos only — "Roots Affecting Sewer" → `drainage`; "Roots Affecting Foundation" → `other` (building issue, not street drainage); "Trees and Sidewalks Program / Free Repair" → `street_infrastructure` (sidewalk repair program).)*
 
 ## Facet 2 · failure_mode (single-valued; ONLY for combos where problem_domain ∈ {drainage, sanitation}; NULL for all other domains — decided, do not backfill)
 
@@ -37,7 +37,7 @@ Consumed by: C2 enrichment (LLM batch mapping), C4 index fields, C5/C6 retrieval
 |---|---|---|
 | `blockage` | Flow path physically obstructed | Catch Basin Clogged, Culvert Blocked/Needs Cleaning |
 | `overflow` | Contents escaping the system | Sewer Backup, Manhole Overflow, Street Flooding |
-| `structural_damage` | Asset broken/sunken/missing | Catch Basin Sunken/Damaged/Raised, Manhole Cover Missing |
+| `structural_damage` | Asset broken/sunken/missing | Catch Basin Sunken/Damaged/Raised, Manhole Cover Missing, Catch Basin Search (v0.1.1: basin buried/paved-over/unlocatable) |
 | `odor` | Smell without confirmed physical failure | Sewer Odor |
 | `debris` | Waste accumulation in/around public space | Illegal Dumping, Dirty Condition (Trash), Litter Basket overflow |
 | `service_gap` | Expected service not delivered | Missed Collection (Trash/Compost/Recycling) |
@@ -59,6 +59,19 @@ This is a **judgment output**, not a lookup of the raw `agencies` column. For ea
 2. One LLM call per combo (or small batches), constrained to the vocabularies above; output written to a `combo_facets` table keyed by embed_text, then fanned out to records via join. Store the model name + prompt version alongside (reproducibility).
 3. Cost guardrail: 337 calls is well under the $20 budget; do not switch to per-record calls under any circumstance.
 4. Parse/validation: reject any output value not in the vocabulary; retry once; surviving failures go to a `needs_review` list for Archy instead of being silently guessed.
+
+## Changelog
+
+- **v0.1.1** (2026-07-04, Archy):
+  1. Accepted the model's three-way split of the DPR Root/Sewer/Sidewalk family
+     (sewer→`drainage`, foundation→`other`, sidewalks-program→`street_infrastructure`);
+     hard boundary rule 3 amended accordingly.
+  2. `Sewer. Catch Basin Search (SC2)` overridden: `failure_mode` blockage →
+     `structural_damage` (a search request means the basin is buried/paved-over,
+     not clogged), `agencies_involved` [DEP,DSNY,DOT] → **[DEP, DOT]** (no litter
+     causal chain). Applied as a data override in `sql/004_ontology_v0.1.1_overrides.sql`
+     — must be re-applied after any enrichment rebuild.
+- **v0.1** (2026-07-02, Archy): initial locked version for W0.
 
 ## Spot-check protocol (Archy, D3 — non-outsourceable)
 
