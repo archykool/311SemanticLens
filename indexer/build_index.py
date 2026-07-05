@@ -36,8 +36,29 @@ import psycopg
 from elasticsearch import Elasticsearch, helpers
 
 ALIAS = "nyc311"
+PATTERNS_ALIAS = "nyc311_patterns"
 DIM = 384
 BATCH = 1000
+
+# Tiny companion index: one doc per distinct text pattern (~337). The kNN
+# leg of hybrid retrieval searches THIS index — searching the 766K record
+# index for semantic neighbors is structurally broken because head patterns
+# own tens of thousands of identical-vector records and crowd out every
+# other pattern within any reachable k (found by C7's recall eval: 0.70
+# mean, 0.10 min). Records are materialized afterwards WITH filters.
+PATTERNS_MAPPING = {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "mappings": {"properties": {
+        "full_text": {"type": "text", "analyzer": "english",
+                      "fields": {"raw": {"type": "keyword", "ignore_above": 512}}},
+        "problem_domain": {"type": "keyword"},
+        "record_count": {"type": "long"},
+        # 337 docs — float HNSW is effectively exact here; quantization
+        # would add error for zero memory benefit.
+        "embedding": {"type": "dense_vector", "dims": DIM, "index": True,
+                      "similarity": "dot_product"},
+    }},
+}
 
 MAPPING = {
     "settings": {
@@ -185,9 +206,56 @@ def doc_actions(conn, index_name):
             yield {"_index": index_name, "_id": unique_key, "_source": doc}
 
 
+def swap_alias(es, alias, new_index):
+    old = list(es.indices.get_alias(name=alias).keys()) if es.indices.exists_alias(name=alias) else []
+    actions = [{"add": {"index": new_index, "alias": alias}}]
+    actions += [{"remove": {"index": o, "alias": alias}} for o in old]
+    es.indices.update_aliases(actions=actions)
+    for o in old:
+        es.indices.delete(index=o)
+        print(f"deleted old index {o}")
+
+
+PATTERNS_SQL = """
+SELECT c.embed_text, c.embedding, f.problem_domain, s.record_count
+FROM embedding_text_cache c
+LEFT JOIN combo_facets f ON f.embed_text = c.embed_text
+JOIN (SELECT concat_ws('. ',
+          nullif(trim(complaint_type), ''),
+          nullif(trim(descriptor), ''),
+          nullif(trim(additional_details), '')) AS et,
+      count(*) AS record_count
+      FROM raw_311_requests GROUP BY 1) s ON s.et = c.embed_text
+"""
+
+
+def build_patterns_index(pg, es):
+    rows = pg.execute(PATTERNS_SQL).fetchall()
+    name = f"{PATTERNS_ALIAS}_{int(time.time())}"
+    es.indices.create(index=name, **PATTERNS_MAPPING)
+    helpers.bulk(es, [
+        {"_index": name, "_id": text, "_source": {
+            "full_text": text, "problem_domain": domain,
+            "record_count": count,
+            "embedding": np.frombuffer(emb, dtype=np.float32).tolist(),
+        }}
+        for text, emb, domain, count in rows
+    ])
+    es.indices.refresh(index=name)
+    got = es.count(index=name)["count"]
+    if got != len(rows):
+        sys.exit(f"ABORT patterns index: {got} != {len(rows)}")
+    swap_alias(es, PATTERNS_ALIAS, name)
+    print(f"patterns index: {got} docs, alias '{PATTERNS_ALIAS}' -> {name}")
+
+
 def main():
     pg = get_pg()
     es = get_es()
+
+    if "--patterns-only" in sys.argv:
+        build_patterns_index(pg, es)
+        return
 
     expected = pg.execute("SELECT count(*) FROM raw_311_requests").fetchone()[0]
     vectors = pg.execute("SELECT count(*) FROM record_embeddings").fetchone()[0]
@@ -217,15 +285,11 @@ def main():
     if got != expected:
         sys.exit(f"ABORT: ES has {got} docs, Postgres has {expected} — alias not moved")
 
-    # Atomic swap: point the alias at the new index, drop old generations.
-    old = list(es.indices.get_alias(name=ALIAS).keys()) if es.indices.exists_alias(name=ALIAS) else []
-    actions = [{"add": {"index": index_name, "alias": ALIAS}}]
-    actions += [{"remove": {"index": o, "alias": ALIAS}} for o in old]
-    es.indices.update_aliases(actions=actions)
-    for o in old:
-        es.indices.delete(index=o)
-        print(f"deleted old index {o}")
+    swap_alias(es, ALIAS, index_name)
     print(f"alias '{ALIAS}' -> {index_name}; rebuild complete")
+
+    # Companion pattern index rebuilds alongside (cheap, 337 docs).
+    build_patterns_index(pg, es)
 
 
 if __name__ == "__main__":

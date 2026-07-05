@@ -1,0 +1,164 @@
+{
+  "timestamp": "20260705T152510Z",
+  "model": "BAAI/bge-small-en-v1.5",
+  "k": 10,
+  "recall_vs_faiss_exact": {
+    "mean": 0.7,
+    "min": 0.1,
+    "gate": 0.95,
+    "passes_gate": false,
+    "per_query": [
+      {
+        "query_id": "Q01",
+        "query": "stormwater drainage problems",
+        "recall_at_10": 0.7
+      },
+      {
+        "query_id": "Q02",
+        "query": "catch basin clogged",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q03",
+        "query": "street flooding after heavy rain",
+        "recall_at_10": 0.7
+      },
+      {
+        "query_id": "Q04",
+        "query": "sewer backup into basement",
+        "recall_at_10": 1.0
+      },
+      {
+        "query_id": "Q05",
+        "query": "clogged storm drain on my block",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q06",
+        "query": "water pooling on the road",
+        "recall_at_10": 0.5
+      },
+      {
+        "query_id": "Q07",
+        "query": "manhole overflowing",
+        "recall_at_10": 0.8
+      },
+      {
+        "query_id": "Q08",
+        "query": "blocked culvert needs cleaning",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q09",
+        "query": "bad smell from sewer",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q10",
+        "query": "rain garden full of trash",
+        "recall_at_10": 0.7
+      },
+      {
+        "query_id": "Q11",
+        "query": "missed trash pickup",
+        "recall_at_10": 0.5
+      },
+      {
+        "query_id": "Q12",
+        "query": "rats in my apartment",
+        "recall_at_10": 0.3
+      },
+      {
+        "query_id": "Q13",
+        "query": "pothole on my street",
+        "recall_at_10": 0.4
+      },
+      {
+        "query_id": "Q14",
+        "query": "abandoned car without plates",
+        "recall_at_10": 0.1
+      },
+      {
+        "query_id": "Q15",
+        "query": "broken water main",
+        "recall_at_10": 0.8
+      },
+      {
+        "query_id": "Q16",
+        "query": "no water pressure in building",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q17",
+        "query": "mold on bathroom ceiling",
+        "recall_at_10": 0.4
+      },
+      {
+        "query_id": "Q18",
+        "query": "illegal dumping on the corner",
+        "recall_at_10": 0.6
+      },
+      {
+        "query_id": "Q19",
+        "query": "stormwater not draining",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q20",
+        "query": "water leak from ceiling",
+        "recall_at_10": 0.7
+      },
+      {
+        "query_id": "Q21",
+        "query": "standing water in the street",
+        "recall_at_10": 0.6
+      },
+      {
+        "query_id": "Q22",
+        "query": "tap water tastes bad",
+        "recall_at_10": 0.8
+      },
+      {
+        "query_id": "Q23",
+        "query": "catch bassin cloged",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q24",
+        "query": "雨水口堵塞",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q25",
+        "query": "下水道反味",
+        "recall_at_10": 0.9
+      },
+      {
+        "query_id": "Q26",
+        "query": "flooding",
+        "recall_at_10": 0.7
+      },
+      {
+        "query_id": "Q27",
+        "query": "trash blocking storm drain",
+        "recall_at_10": 0.8
+      },
+      {
+        "query_id": "Q28",
+        "query": "toilet won't flush whole building",
+        "recall_at_10": 0.3
+      },
+      {
+        "query_id": "Q29",
+        "query": "noise complaint at night",
+        "recall_at_10": 0.6
+      },
+      {
+        "query_id": "Q30",
+        "query": "tree roots breaking the sewer line",
+        "recall_at_10": 0.9
+      }
+    ]
+  },
+  "precision_vs_golden": null
+}

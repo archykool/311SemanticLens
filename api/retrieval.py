@@ -36,10 +36,14 @@ import psycopg
 
 RRF_K = 60
 LEG_DEPTH = 100          # BM25 leg depth (collapsed to distinct patterns by ES)
-# The kNN leg dedupes to patterns in Python, and head patterns own thousands
-# of records each — k must be deep or the leg surfaces only 2-3 distinct
-# patterns and fusion starves. 1000 records ~ top 15-30 patterns.
-KNN_DEPTH = 1000
+# kNN leg pattern depth. The leg searches the 337-doc PATTERN index, not
+# the 766K record index: head patterns own tens of thousands of
+# identical-vector records, so record-level kNN crowds out every other
+# pattern within any reachable k (C7's recall eval measured 0.70 mean /
+# 0.10 min before this change). Geo/time filters can't apply to patterns —
+# they apply at record materialization instead.
+KNN_PATTERNS = 50
+PATTERNS_INDEX = "nyc311_patterns"
 
 # Pattern selection: keep patterns within REL_WINDOW of the best cosine,
 # subject to an absolute floor and a cap. Calibration points from C3:
@@ -159,30 +163,25 @@ def hybrid_search(es, index, topic, query_vec, filters, size=10, explain=False,
         "size": LEG_DEPTH, "_source": False,
         "fields": ["full_text.raw"],
     }
+    # kNN over the 337-doc pattern index — effectively exact at this size.
+    # Unfiltered by design: filters live at record materialization below.
     knn_body = {
         "knn": {"field": "embedding", "query_vector": query_vec,
-                "k": KNN_DEPTH, "num_candidates": KNN_DEPTH * 2,
-                "filter": filters},
-        "size": KNN_DEPTH, "_source": False,
-        "fields": ["full_text.raw"],
+                "k": KNN_PATTERNS, "num_candidates": 337},
+        "size": KNN_PATTERNS, "_source": False,
     }
     resp = es.msearch(searches=[
         {"index": index}, bm25_body,
-        {"index": index}, knn_body,
+        {"index": PATTERNS_INDEX}, knn_body,
     ])
 
-    def pattern_ranking(hits):
-        """(ordered distinct patterns, pattern -> representative record id)"""
-        order, rep = [], {}
-        for h in hits:
-            pattern = h["fields"]["full_text.raw"][0]
-            if pattern not in rep:
-                rep[pattern] = h["_id"]
-                order.append(pattern)
-        return order, rep
-
-    bm25_patterns, bm25_rep = pattern_ranking(resp["responses"][0]["hits"]["hits"])
-    knn_patterns, knn_rep = pattern_ranking(resp["responses"][1]["hits"]["hits"])
+    bm25_patterns = []
+    for h in resp["responses"][0]["hits"]["hits"]:
+        pattern = h["fields"]["full_text.raw"][0]
+        if pattern not in bm25_patterns:
+            bm25_patterns.append(pattern)
+    # Pattern index uses embed_text as _id.
+    knn_patterns = [h["_id"] for h in resp["responses"][1]["hits"]["hits"]]
 
     fused = rrf_fuse(bm25_patterns, knn_patterns)
     if not fused:
@@ -206,15 +205,31 @@ def hybrid_search(es, index, topic, query_vec, filters, size=10, explain=False,
                 key=lambda kv: -kv[1],
             )
 
-    fused = fused[:size]
-    # Representative record per pattern: BM25's collapse top hit, else kNN's.
-    ids = [bm25_rep.get(p) or knn_rep[p] for p, _ in fused]
-    docs = es.mget(index=index, ids=ids, source_includes=SOURCE_FIELDS)
-    by_id = {d["_id"]: d["_source"] for d in docs["docs"] if d.get("found")}
-    hits = [
-        {"rrf_score": round(score, 5), **by_id[doc_id]}
-        for (_, score), doc_id in zip(fused, ids) if doc_id in by_id
-    ]
+    # Materialize one representative record per fused pattern, WITH the
+    # geo/time filters applied — a pattern with no records under the
+    # filters drops out and the next fused pattern takes its slot.
+    candidates = fused[: size * 2]
+    searches = []
+    for pattern, _ in candidates:
+        searches.append({"index": index})
+        searches.append({
+            "query": {"bool": {"filter": filters + [
+                {"term": {"full_text.raw": pattern}}]}},
+            "size": 1, "sort": [{"created_date": "desc"}],
+            "_source": SOURCE_FIELDS,
+        })
+    rep_resp = es.msearch(searches=searches)
+
+    hits, materialized = [], []
+    for (pattern, score), leg in zip(candidates, rep_resp["responses"]):
+        leg_hits = leg["hits"]["hits"]
+        if not leg_hits:
+            continue  # pattern absent under current filters
+        hits.append({"rrf_score": round(score, 5), **leg_hits[0]["_source"]})
+        materialized.append((pattern, score))
+        if len(hits) >= size:
+            break
+    fused = materialized
 
     debug = None
     if explain:

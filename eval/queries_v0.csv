@@ -1,0 +1,31 @@
+query_id,query,category,note
+Q01,stormwater drainage problems,drainage_core,Q1-adjacent; zero category words — the "healthy foods" test
+Q02,catch basin clogged,drainage_core,exact-term BM25 path; canonical killer-feature topic
+Q03,street flooding after heavy rain,drainage_core,
+Q04,sewer backup into basement,drainage_core,
+Q05,clogged storm drain on my block,drainage_core,synonym of catch basin — vocabulary gap test
+Q06,water pooling on the road,drainage_core,paraphrase without any 311 vocabulary
+Q07,manhole overflowing,drainage_core,
+Q08,blocked culvert needs cleaning,drainage_core,
+Q09,bad smell from sewer,drainage_core,odor mode
+Q10,rain garden full of trash,drainage_core,niche GI asset
+Q11,missed trash pickup,other_domain,sanitation service_gap
+Q12,rats in my apartment,other_domain,DOHMH/HPD boundary
+Q13,pothole on my street,other_domain,street_infrastructure
+Q14,abandoned car without plates,other_domain,NYPD/DSNY boundary
+Q15,broken water main,other_domain,water_supply
+Q16,no water pressure in building,other_domain,water_supply
+Q17,mold on bathroom ceiling,other_domain,HPD other
+Q18,illegal dumping on the corner,other_domain,sanitation debris
+Q19,stormwater not draining,adversarial,negation — embeddings pull toward "No Water"; regression case
+Q20,water leak from ceiling,adversarial,lexical trap — indoor HPD leak; must NOT retrieve drainage
+Q21,standing water in the street,adversarial,ambiguous: drainage vs DOHMH mosquito standing-water
+Q22,tap water tastes bad,adversarial,supply-side; "water" bait toward drainage
+Q23,catch bassin cloged,adversarial,double misspelling — embedding robustness; BM25 gets no help
+Q24,雨水口堵塞,adversarial,Chinese: catch basin clogged
+Q25,下水道反味,adversarial,Chinese: sewer odor coming back up
+Q26,flooding,adversarial,single vague word — precision under maximal ambiguity
+Q27,trash blocking storm drain,adversarial,compound: sanitation cause + drainage effect; multi-agency heart
+Q28,toilet won't flush whole building,adversarial,indoor plumbing vs sewer backup boundary
+Q29,noise complaint at night,adversarial,out-of-corpus — nothing relevant exists; tests the precision floor
+Q30,tree roots breaking the sewer line,adversarial,DPR/DEP cross-agency; the v0.1.1 split decision

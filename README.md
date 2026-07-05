@@ -3,9 +3,9 @@
 Semantic retrieval and signal-analysis prototype over NYC 311 complaint data.
 Full spec: [Docs/spec-311-semantic-en.md](Docs/spec-311-semantic-en.md).
 
-Status: **C1–C6 done** (ingestion, enrichment, embeddings, ES index, query
-understanding, hybrid retrieval & aggregation). Next: C7 (evaluation
-harness). See the spec's §6 build order.
+Status: **C1–C7 done** (C7 recall track complete; precision track pending
+Archy's golden labels). Next: C8 (demo frontend). See the spec's §6 build
+order.
 
 ## Setup
 
@@ -156,3 +156,28 @@ docker compose run --rm api pytest test_c6.py -v -s   # 5 questions + regression
 
 Gates: all five questions return their shapes; exact-term and semantic
 paths verified; No Water regression; p95 latency 181ms (≤2s required).
+
+## Evaluation (C7)
+
+FAISS (`IndexFlatIP`, exact) lives only in the eval image — never in
+serving. Evaluation is at the **pattern level**: thousands of records share
+identical vectors, so record-level top-10 comparison is tie-breaking noise.
+
+**The eval harness earned its keep immediately**: the first recall run
+measured 0.70 mean / 0.10 min and exposed that record-level kNN is
+structurally broken in this corpus — head patterns (up to 67,903 identical
+vectors) crowd out everything else within any reachable k. Fix: the kNN
+leg now searches a 337-doc **pattern index** (`nyc311_patterns`, float
+HNSW ≈ exact) and representative records are materialized afterwards WITH
+geo/time filters. Post-fix: **recall@10 mean 0.9567 (gate 0.95: PASS)**,
+residual misses are 1-2 near-tied patterns at the rank-10 boundary.
+
+precision@10 runs against a human-labeled golden set (30 queries incl.
+adversarial; facets are never used as a relevance proxy). Candidates are
+**pooled** — BM25 top-15 + kNN top-15 + serving top-10 + 5 random, sources
+hidden from the judge (protocol: [eval/LABELING.md](eval/LABELING.md)).
+
+```bash
+docker compose run --rm eval python pool.py   # labeling sheet -> Data/
+docker compose run --rm eval                  # report -> eval/reports/ (versioned)
+```

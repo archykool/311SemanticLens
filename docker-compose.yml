@@ -136,6 +136,36 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  # Evaluation only — FAISS is quarantined in this image, never in serving.
+  # Run with: docker compose run --rm eval            (recall + precision report)
+  #           docker compose run --rm eval python pool.py   (labeling sheet)
+  eval:
+    build:
+      context: .
+      dockerfile: eval/Dockerfile
+    profiles: ["tools"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-semanticlens}
+      POSTGRES_USER: ${POSTGRES_USER:-semanticlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      ES_HOST: http://elasticsearch:9200
+      API_URL: http://api:8000
+      OUT_DIR: /data
+    volumes:
+      - ./eval:/app
+      - ./shared:/app/shared
+      - ./Data:/data
+      - hfcache:/hf-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      api:
+        condition: service_started
+
 volumes:
   pgdata:
   esdata:
