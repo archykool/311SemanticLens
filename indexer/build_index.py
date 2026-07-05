@@ -65,8 +65,15 @@ MAPPING = {
             },
             "additional_details": {"type": "text", "analyzer": "english"},
             # The exact canonical string that was embedded (C3) — one field
-            # for whole-document BM25 matching.
-            "full_text": {"type": "text", "analyzer": "english"},
+            # for whole-document BM25 matching. The raw subfield is the
+            # pattern identity: C6 selects relevant patterns semantically
+            # (337 vectors in memory) and pushes them down as an exact terms
+            # filter here, so aggregations run over the full matching record
+            # set instead of a top-k hit list.
+            "full_text": {
+                "type": "text", "analyzer": "english",
+                "fields": {"raw": {"type": "keyword", "ignore_above": 512}},
+            },
             # Structured filters (C5 query object pushes these down as
             # pre-filters before BM25/kNN run).
             "agency": {"type": "keyword"},

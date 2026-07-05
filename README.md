@@ -3,9 +3,9 @@
 Semantic retrieval and signal-analysis prototype over NYC 311 complaint data.
 Full spec: [Docs/spec-311-semantic-en.md](Docs/spec-311-semantic-en.md).
 
-Status: **C1–C5 done** (ingestion, enrichment, embeddings, ES index, query
-understanding). Next: C6 (hybrid retrieval & aggregation). See the spec's
-§6 build order.
+Status: **C1–C6 done** (ingestion, enrichment, embeddings, ES index, query
+understanding, hybrid retrieval & aggregation). Next: C7 (evaluation
+harness). See the spec's §6 build order.
 
 ## Setup
 
@@ -120,3 +120,39 @@ docker compose run --rm api python smoke_prefix.py     # prefix A/B
 Gates: 5/5 canonical questions, 20/20 paraphrases (≥80% required),
 0.054ms/parse (≤500ms required). `?explain=true` attaches the parsed query
 object and fired rules to search responses for live demo narration.
+
+## Hybrid retrieval & aggregation (C6)
+
+**RRF fusion at the pattern level** ([api/retrieval.py](api/retrieval.py)):
+BM25 and kNN rankings are collapsed to the ~337 distinct text patterns
+*before* fusing (`score = Σ 1/(60+rank)`), because thousands of records
+share each pattern — record-level fusion degrades to whichever leg's
+duplicates flood the depth. Fusion happens at the granularity where the
+two signals are comparable; one representative record per fused pattern
+also deduplicates the result list for free. A rank-weighted
+**domain-consensus rerank** (the C2 ontology feeding back into retrieval)
+demotes patterns that disagree with the fused head's majority domain —
+this is what keeps "No Water" out of the results for "stormwater not
+draining", the negation case embeddings get wrong (regression-tested).
+
+geo/time from the parsed query are pushed down as pre-filters on both legs
+and every aggregation. Aggregations run over the full matching record set,
+not a top-k list: the query semantically selects relevant patterns (337
+in-memory vectors), and the selection is pushed down as an exact
+`full_text.raw` terms filter. Five shapes, one per chief-DS question:
+district distribution (Q1), agency facets routed-vs-involved (Q2),
+half-over-half trend by district (Q3), top-N (Q4), and spatial-temporal
+co-occurrence with citywide lift (Q5, district×month cells).
+
+**Q1's drill-down is two-stage by contract**: stage 1 returns buckets with
+`expand` hints only; the client re-requests with `expand_group=<district>`
+to get the records behind one bucket. Never flattened.
+
+```bash
+curl "localhost:8000/search?q=Where+in+Brooklyn+is+stormwater+not+draining&explain=true"
+curl "localhost:8000/search?q=Where+in+Brooklyn+is+stormwater+not+draining&expand_group=03+BROOKLYN"
+docker compose run --rm api pytest test_c6.py -v -s   # 5 questions + regressions + p95
+```
+
+Gates: all five questions return their shapes; exact-term and semantic
+paths verified; No Water regression; p95 latency 181ms (≤2s required).

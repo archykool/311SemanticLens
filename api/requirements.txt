@@ -5,3 +5,4 @@ elasticsearch>=8.15,<9
 psycopg[binary]==3.2.3
 numpy<3
 pytest==8.3.4
+httpx==0.28.1

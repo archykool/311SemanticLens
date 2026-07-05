@@ -1,11 +1,16 @@
-"""FastAPI service — C5 (query understanding) + the retrieval entrypoint.
+"""FastAPI service — C5 query understanding + C6 hybrid retrieval/aggregation.
 
-C5 scope: /parse (structured query object) and /search with the parse
-attached when ?explain=true (Archy's demo requirement). /search currently
-runs kNN-only retrieval as a placeholder — C6 replaces its internals with
-BM25 + kNN RRF fusion, filter push-down, and the aggregation shapes. The
-C5 contract (parse -> ParsedQuery -> retrieval, explain plumbing, graceful
-degrade) is final.
+/search request flow:
+  parse (rules, C5) -> embed topic (bge + query prefix) -> select patterns
+  (semantic, 337 in-memory vectors) -> hybrid RRF results + aggregation
+  shape if one was parsed. geo/time ride along as pre-filters everywhere.
+
+Drill-down (Q1's two-stage contract): aggregation responses contain
+`expand` hints per bucket; the client re-requests with expand_group=... to
+get the records behind that bucket. Stage 1 never inlines records.
+
+?explain=true attaches the parsed query, selected patterns, and RRF leg
+ranks — Archy's live demo narration channel.
 """
 
 import os
@@ -14,18 +19,24 @@ from contextlib import asynccontextmanager
 from elasticsearch import Elasticsearch
 from fastapi import FastAPI, Query
 
+from aggregations import run_aggregation
 from embedder import embed_query
 from parser import parse_query
-from schema import ParsedQuery
+from retrieval import PatternStore, filters_from, hybrid_search
+from schema import Expand, ParsedQuery
 
 INDEX = "nyc311"
 
-es = Elasticsearch(os.environ.get("ES_HOST", "http://localhost:9200"))
+es = Elasticsearch(os.environ.get("ES_HOST", "http://localhost:9200"),
+                   request_timeout=30)
+pattern_store: PatternStore | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    embed_query("warmup")  # load bge weights before first request
+    global pattern_store
+    embed_query("warmup")           # load bge weights
+    pattern_store = PatternStore()  # load 337 pattern vectors + facets
     yield
 
 
@@ -34,36 +45,45 @@ app = FastAPI(title="311SemanticLens", lifespan=lifespan)
 
 @app.get("/parse", response_model=ParsedQuery)
 def parse(q: str = Query(..., min_length=1)):
-    """The C5 structured query object, always with matched_rules (explain)."""
     return parse_query(q)
 
 
 @app.get("/search")
-def search(q: str = Query(..., min_length=1), size: int = 10, explain: bool = False):
+def search(
+    q: str = Query(..., min_length=1),
+    size: int = 10,
+    explain: bool = False,
+    # Stage 2 of drill-down: identify the bucket whose records to fetch.
+    expand_group: str | None = None,
+    expand_size: int = 20,
+):
     parsed = parse_query(q)
-    vector = embed_query(parsed.topic)
+    if expand_group and parsed.aggregation:
+        parsed.aggregation.expand = Expand(group_value=expand_group, size=expand_size)
 
-    # C6 TODO: RRF fusion with BM25, structured pre-filters from parsed.geo /
-    # parsed.time_range, and the aggregation shapes. kNN-only until then.
-    res = es.search(
-        index=INDEX,
-        knn={"field": "embedding", "query_vector": vector, "k": size,
-             "num_candidates": max(100, size * 10)},
-        source=["unique_key", "created_date", "complaint_type", "descriptor",
-                "borough", "community_board", "agency", "problem_domain",
-                "failure_mode", "agencies_involved"],
-        size=size,
+    query_vec = embed_query(parsed.topic)
+    patterns = pattern_store.select(query_vec, parsed.topic)
+    filters = filters_from(parsed)
+
+    hits, rrf_debug = hybrid_search(
+        es, INDEX, parsed.topic, query_vec, filters, size=size, explain=explain,
+        pattern_store=pattern_store,
     )
-    hits = [
-        {"score": h["_score"], **h["_source"]}
-        for h in res["hits"]["hits"]
-    ]
     body = {"results": hits}
+
+    if parsed.aggregation is not None and patterns:
+        body["aggregation"] = run_aggregation(es, INDEX, parsed, patterns, pattern_store)
+
     if explain:
-        body["explain"] = parsed.model_dump()
+        body["explain"] = {
+            "parsed": parsed.model_dump(),
+            "selected_patterns": patterns,
+            "rrf": rrf_debug,
+        }
     return body
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "es": es.ping()}
+    return {"ok": True, "es": es.ping(),
+            "patterns_loaded": len(pattern_store.texts) if pattern_store else 0}
